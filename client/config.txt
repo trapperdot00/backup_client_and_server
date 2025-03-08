@@ -1,3 +1,16 @@
+# Configuration file syntax:
+# Comments can be placed with a '#' character
+# as the first non-whitespace character on a line
+# Option-Value pairs in this format:
+# 	Option = Value
+# where whitespace before and after Option,
+# and Value is ignored:
+# This is legal: Option=Value
+# So is this: Option      	= 	 	Value
+# Both will be parsed without bordering whitespace
+
+# Example configuration:
+
 # Set server IP address to upload backup to:
 # ServerIP = 192.168.1.100
 
