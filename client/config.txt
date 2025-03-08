@@ -1,0 +1,8 @@
+# Set server IP address to upload backup to:
+# ServerIP = 192.168.1.100
+
+# Set port to communicate on with the server:
+# Port = 25444
+
+# Set directory whose files to copy to the server:
+# SyncPath = /home/user/Documents/
