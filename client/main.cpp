@@ -255,10 +255,18 @@ int main(int argc, char* argv[]) try {
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		throw std::runtime_error{"socket error"};
+
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(options.port);
 	addr.sin_addr.s_addr = inet_addr(options.server_ip.c_str());
+	if (connect(fd, reinterpret_cast<sockaddr*>(&addr),
+			sizeof(addr)) == -1) {
+		int err = errno;
+		throw std::runtime_error{
+			"failed connect() " + std::to_string(err)
+		};
+	}
 
 	size_t depth = (argc > 1 ? std::stoull(argv[1])
 			: std::numeric_limits<size_t>::max());
@@ -269,14 +277,6 @@ int main(int argc, char* argv[]) try {
 		std::cout << "No files to backup!\n";
 		return 0;
 	}
-	if (connect(fd, reinterpret_cast<sockaddr*>(&addr),
-			sizeof(addr)) == -1) {
-		int err = errno;
-		throw std::runtime_error{
-			"failed connect() " + std::to_string(err)
-		};
-	}
-
 	send_message(fd, send_text);
 	
 	std::string received = receive_message(fd);
