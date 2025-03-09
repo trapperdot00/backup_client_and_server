@@ -14,10 +14,11 @@
 #include <fstream>
 #include <vector>
 #include <set>
-#include <map>
 #include <algorithm>
 #include <sstream>
 #include <boost/crc.hpp>
+
+#include "Client_options.h"
 
 namespace fs = std::filesystem;
 
@@ -154,103 +155,10 @@ void send_files
 	}
 }
 
-struct Options {
-	enum setting {
-		ServerIP, Port, SyncPath
-	};
-	Options(const std::map<setting, std::string>& data)
-		: server_ip{data.at(ServerIP)},
-		port{std::stoi(data.at(Port))},
-		sync_path{data.at(SyncPath)}
-	{}
-
-	std::string server_ip;
-	int port;
-	fs::path sync_path;	// Directory to sync with server
-};
-Options::setting get_setting(const std::string& s) {
-	static const std::map<std::string, Options::setting> trans = {
-		{"ServerIP", Options::ServerIP},
-		{"Port", Options::Port},
-		{"SyncPath", Options::SyncPath}
-	};
-	std::map<std::string, Options::setting>::const_iterator it =
-		trans.find(s);
-	if (it == trans.cend())
-		throw std::runtime_error{"invalid setting: \"" + s + '"'};
-	return it->second;
-}
-
-void rstrip(std::string& s) {
-	size_t pos = s.find_last_not_of(" \t\n");
-	s = s.substr(0, pos + 1);
-}
-
-void lstrip(std::string& s) {
-	size_t pos = s.find_first_not_of(" \t\n");
-	s = s.substr(pos);
-}
-
-Options parse_config_file(const fs::path& filepath) {
-	std::ifstream is{filepath};
-	if (!is)
-		throw std::runtime_error{"can't open config file "
-			+ filepath.string()
-			+ " for reading"
-		};
-	std::map<Options::setting, std::string> values;
-	while (is) {
-		std::string setting;
-		std::string value;
-		char ch = 0;
-		// Skip whitespace from the front
-		while (is.get(ch) && std::isspace(ch))
-			;
-		if (!is)	// No more lines to read
-			break;
-		// Comment line starts with a # after any whitespace chars
-		if (ch == '#') {
-			// Skip to the next line
-			while (is.get(ch) && ch != '\n')
-				;
-			continue;
-		}
-		is.unget();	// Put back if not #
-		// Read setting, drop =
-		while (is.get(ch) && ch != '=') {
-			setting += ch;
-		}
-		rstrip(setting);
-		if (!is)
-			throw std::runtime_error{"setting missing in config file"};
-		// Read value
-		while (is.get(ch) && ch != '\n') {
-			value += ch;
-		}
-		lstrip(value);
-		if (!is || value.empty())
-			throw std::runtime_error{
-				"value missing for " + setting + " in config file"
-			};
-		std::cout << setting << " : " << value << '\n';
-		Options::setting setting_e = get_setting(setting);
-		// Check for insert success
-		bool result = values.insert(
-			std::make_pair(setting_e, value)
-			).second;
-		if (!result)
-			throw std::runtime_error{
-				"multiple values for setting " + setting
-			};
-	}
-	Options options{values};
-	return options;
-}
-
 int main(int argc, char* argv[]) try {
 	// Configuration file path
 	const fs::path config_path = "./config.txt";
-	const Options options = parse_config_file(config_path);
+	const Client_options options{parse_options(config_path)};
 
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
@@ -258,8 +166,8 @@ int main(int argc, char* argv[]) try {
 
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(options.port);
-	addr.sin_addr.s_addr = inet_addr(options.server_ip.c_str());
+	addr.sin_port = htons(options.port());
+	addr.sin_addr.s_addr = inet_addr(options.server_ip().c_str());
 	if (connect(fd, reinterpret_cast<sockaddr*>(&addr),
 			sizeof(addr)) == -1) {
 		int err = errno;
@@ -271,8 +179,8 @@ int main(int argc, char* argv[]) try {
 	size_t depth = (argc > 1 ? std::stoull(argv[1])
 			: std::numeric_limits<size_t>::max());
 	std::vector<Entry> entries =
-		checksums_for_directory_entries(options.sync_path, depth);
-	std::string send_text = format(entries, options.sync_path);
+		checksums_for_directory_entries(options.sync_path(), depth);
+	std::string send_text = format(entries, options.sync_path());
 	if (send_text.empty()) {
 		std::cout << "No files to backup!\n";
 		return 0;
@@ -285,7 +193,7 @@ int main(int argc, char* argv[]) try {
 		std::cout << "Local files up to date with backup.\n";
 	} else {
 		std::cout << outdated.size() << " file(s) to backup.\n";
-		send_files(fd, outdated, options.sync_path);
+		send_files(fd, outdated, options.sync_path());
 	}
 
 	shutdown(fd, SHUT_WR);
