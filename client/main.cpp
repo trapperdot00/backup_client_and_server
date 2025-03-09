@@ -30,7 +30,7 @@ recursive_directory_search(const fs::path& p, size_t depth) {
 		++it) {
 		// Only return files, not directories, as directories don't
 		// have checksum values, and it would mess with the parsing
-		if (!fs::is_directory(*it))
+		if (!fs::is_directory(*it) && fs::is_regular_file(*it))
 			entries.push_back(*it);
 		if (depth > 1 && fs::is_directory(*it)) {
 			std::vector<fs::path> dir_entries =
@@ -91,6 +91,7 @@ std::vector<Entry> checksums_for_directory_entries
 	std::vector<Entry> ret;
 	std::vector<fs::path> paths = get_directory_entries(p, depth);
 	for (fs::path& p : paths) {
+//		std::cout << "Calculating " << p << '\n';
 		uint32_t checksum = get_crc32_from_file(p);
 		ret.push_back(Entry{std::move(p), checksum});
 	}
@@ -144,7 +145,7 @@ void send_files
 		size_t file_size = fs::file_size(localpath);
 		std::ostringstream metadata;
 		metadata << path << ' ' << file_size << '\n';
-		std::cout << "Sending " << path << " (" << file_size << " bytes)\n";
+//		std::cout << "Sending " << path << " (" << file_size << " bytes)\n";
 		send(fd, metadata.str().c_str(), metadata.str().size(), MSG_CONFIRM);
 		constexpr size_t bufsize = 1024;
 		char buf[bufsize]{};
@@ -178,8 +179,12 @@ int main(int argc, char* argv[]) try {
 
 	size_t depth = (argc > 1 ? std::stoull(argv[1])
 			: std::numeric_limits<size_t>::max());
+
+	std::cout << "Calculating checksums...\n";
 	std::vector<Entry> entries =
 		checksums_for_directory_entries(options.sync_path(), depth);
+
+	std::cout << "Sending checksums...\n";
 	std::string send_text = format(entries, options.sync_path());
 	if (send_text.empty()) {
 		std::cout << "No files to backup!\n";
