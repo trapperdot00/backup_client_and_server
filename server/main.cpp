@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <set>
 
+#include "Server_options.h"
+
 namespace fs = std::filesystem;
 
 struct Entry {
@@ -131,10 +133,9 @@ void create_files
 int main(int argc, char* argv[]) {
 	constexpr size_t default_bufsize = 1024;
 	const size_t bufsize = (argc < 2) ? default_bufsize : std::stoull(argv[1]);	// Read in chunks
-	constexpr int port = 25444;
+	const fs::path config_path = "./config.txt";
 	const fs::path checksums_path = "./checksums.txt";
-	const fs::path backup_path = "./backup";
-
+	const Server_options options = parse_options(config_path);
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		throw std::runtime_error{"failed socket()"};
@@ -143,7 +144,7 @@ int main(int argc, char* argv[]) {
 
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
+	addr.sin_port = htons(options.port());
 	addr.sin_addr.s_addr = INADDR_ANY;	// Accept connections from any IP address
 
 	if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == -1) {
@@ -189,7 +190,7 @@ int main(int argc, char* argv[]) {
 		}
 		send(clientfd, "\0", 1, MSG_CONFIRM);	// Terminator
 		
-		create_files(clientfd, bufsize, backup_path);
+		create_files(clientfd, bufsize, options.backup_path());
 
 		close(clientfd);
 		std::cout << "--Disconnected from " << inet_ntoa(addr.sin_addr) << "--\n";
