@@ -1,5 +1,6 @@
 *.o
 *.out
 *.swp
+config.txt
 backup
 checksums.txt
