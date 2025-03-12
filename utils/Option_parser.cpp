@@ -4,8 +4,27 @@
 
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 namespace fs = std::filesystem;
+
+template <>
+std::vector<int> Options::lookup_as<int>(const std::string& key) const {
+	std::vector<std::string> values = lookup(key);
+	std::vector<int> ret;
+	std::transform(
+			values.begin(),
+			values.end(),
+			std::back_inserter(ret),
+			[](const std::string& s) { return std::stoi(s); }
+	);
+	return ret;
+}
+
+template <>
+int Options::lookup_single_as<int>(const std::string& key) const {
+	return std::stoi(lookup_single(key));
+}
 
 bool comment_line(const std::string& line) {
 	std::istringstream is{line};
@@ -44,8 +63,7 @@ Options parse_options(std::istream& is) {
 		if (strip(line).empty() || comment_line(line))
 			continue;
 		std::pair<std::string, std::string> parsed = parse_line(line);
-		if (!options.data.insert(parse_line(line)).second)
-			throw std::runtime_error{"multiple values for option " + parsed.first};
+		options.data.insert(parse_line(line));
 	} catch (std::runtime_error& e) {	// Attach context to error
 		throw std::runtime_error{
 			"line " + std::to_string(line_no+1) + ": " + e.what()

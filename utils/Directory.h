@@ -1,10 +1,13 @@
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <vector>
 #include <string>
 #include <utility>
+#include <stdexcept>
 
 // Returns a unique sorted list of only directory names
 // under a given path, searched recursively
@@ -16,9 +19,19 @@ std::vector<size_t> tokenize_path(const std::vector<std::string>& dir, const std
 
 // Write and read file that contains the directories' names
 void write_directories_file(const std::filesystem::path& filepath, const std::vector<std::filesystem::path>& tokens);
-std::vector<std::string> read_file_rows(const std::filesystem::path& filepath);
 
-// Collect elements that are common to each sorted vector
+template <typename T = std::string>
+std::vector<T> read_file_rows(const std::filesystem::path& filepath) {
+	std::vector<T> vec;
+	std::ifstream is{filepath};
+	if (!is)
+		throw std::runtime_error{"can't open " + filepath.string() + " for reading"};
+	for (std::string line; std::getline(is, line); )
+		vec.push_back(T{std::move(line)});
+	return vec;
+}
+
+// Collect unique elements that are common to each sorted vector
 template <typename T>
 std::vector<T> collect_common_elements(const std::vector<std::vector<T>>& v) {
 	if (v.empty())
@@ -34,6 +47,8 @@ std::vector<T> collect_common_elements(const std::vector<std::vector<T>>& v) {
 		vec = std::move(temp);
 	}
 	std::sort(vec.begin(), vec.end());
+	auto last = std::unique(vec.begin(), vec.end());
+	vec.erase(last, vec.end());
 	return vec;
 }
 

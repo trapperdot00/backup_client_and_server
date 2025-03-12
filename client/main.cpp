@@ -19,37 +19,27 @@
 #include <boost/crc.hpp>
 
 #include "Client_options.h"
+#include "../utils/Path_handler.h"
 
 namespace fs = std::filesystem;
 
 std::vector<fs::path>
-recursive_directory_search(const fs::path& p, size_t depth) {
+recursive_directory_search(const fs::path& p) {
 	std::vector<fs::path> entries;
-	for (fs::directory_iterator it{p};
-		it != fs::directory_iterator{};
+	for (fs::recursive_directory_iterator it{p};
+		it != fs::recursive_directory_iterator{};
 		++it) {
 		// Only return files, not directories, as directories don't
 		// have checksum values, and it would mess with the parsing
 		if (!fs::is_directory(*it) && fs::is_regular_file(*it))
 			entries.push_back(*it);
-		if (depth > 1 && fs::is_directory(*it)) {
-			std::vector<fs::path> dir_entries =
-				recursive_directory_search(*it, depth - 1);
-			std::move(
-				dir_entries.begin(),
-				dir_entries.end(),
-				std::back_inserter(entries)
-			);
-		}
 	}
 	return entries;
 }
 
 std::vector<fs::path> get_directory_entries
-(const fs::path& p, size_t depth) {
-	if (!depth)
-		throw std::runtime_error{"depth of 0"};
-	return recursive_directory_search(p, depth);
+(const fs::path& p) {
+	return recursive_directory_search(p);
 }
 
 uint32_t get_crc32(const std::string& s) {
@@ -81,29 +71,28 @@ void send_message(int fd, const std::string& msg) {
 	send(fd, "\0", 1, MSG_CONFIRM);	// END TRANSMISSION
 }
 
-struct Entry {
-	fs::path path;
-	uint32_t checksum;
-};
-
-std::vector<Entry> checksums_for_directory_entries
-(const fs::path& p, size_t depth) {
-	std::vector<Entry> ret;
-	std::vector<fs::path> paths = get_directory_entries(p, depth);
-	for (fs::path& p : paths) {
-//		std::cout << "Calculating " << p << '\n';
-		uint32_t checksum = get_crc32_from_file(p);
-		ret.push_back(Entry{std::move(p), checksum});
+std::unordered_map<fs::path, uint32_t> checksums_for_directory_entries
+(const std::vector<fs::path>& vec) {
+	std::unordered_map<fs::path, uint32_t> ret;
+	for (const fs::path& path : vec) {
+		std::vector<fs::path> paths = get_directory_entries(path);
+		for (fs::path& p : paths) {
+			// VERBOSE
+			std::cout << "Calculating " << p << '\n';
+			
+			uint32_t checksum = get_crc32_from_file(p);
+			ret.insert({std::move(p), checksum});
+		}
 	}
 	return ret;
 }
 
-std::string format(const std::vector<Entry>& vec, const fs::path& root) {
+std::string format(const std::unordered_map<fs::path, uint32_t>& entries, const fs::path& root) {
 	std::ostringstream os;
-	for (const Entry& e : vec) {
-		os << fs::relative(e.path, root)
+	for (const auto& e : entries) {
+		os << fs::relative(e.first, root)
 			<< '\t'
-			<< e.checksum
+			<< e.second
 			<< '\n';
 	}
 	return os.str();
@@ -145,7 +134,10 @@ void send_files
 		size_t file_size = fs::file_size(localpath);
 		std::ostringstream metadata;
 		metadata << path << ' ' << file_size << '\n';
-//		std::cout << "Sending " << path << " (" << file_size << " bytes)\n";
+
+		// VERBOSE
+		std::cout << "Sending " << path << " (" << file_size << " bytes)\n";
+
 		send(fd, metadata.str().c_str(), metadata.str().size(), MSG_CONFIRM);
 		constexpr size_t bufsize = 1024;
 		char buf[bufsize]{};
@@ -156,11 +148,20 @@ void send_files
 	}
 }
 
-int main(int argc, char* argv[]) try {
+int main(/*int argc, char* argv[]*/) try {
 	// Configuration file path
 	const fs::path config_path = "./config.txt";
 	const Client_options options{parse_options(config_path)};
-
+	Path_handler phandler(options.sync_path(), options.directory());
+	for (const fs::path& p : options.sync_path())
+		add_recursively(phandler, p);
+	std::cout << "0000\n" 
+		<< phandler.translation_table()
+		<< "0000\n";
+	for (size_t i = 0; i < phandler.size(); ++i)
+		std::cout << phandler.entry(i) << '\t' << "cksum\n";
+	std::cout << "0000\n";
+/*
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		throw std::runtime_error{"socket error"};
@@ -176,21 +177,21 @@ int main(int argc, char* argv[]) try {
 			"failed connect() " + std::to_string(err)
 		};
 	}
+*/
+//	std::cout << "Calculating checksums..." << std::endl;
+//	std::unordered_map<fs::path, uint32_t> entries =
+//		checksums_for_directory_entries(options.sync_path());
 
-	size_t depth = (argc > 1 ? std::stoull(argv[1])
-			: std::numeric_limits<size_t>::max());
+//	std::cout << "Sending checksums..." << std::endl;
+	// TODO: multiple syncpath support
+//	std::string send_text = format(entries, options.sync_path()[0]);
+//	if (send_text.empty()) {
+//		std::cout << "No files to backup!\n";
+//		return 0;
+//	}
 
-	std::cout << "Calculating checksums...\n";
-	std::vector<Entry> entries =
-		checksums_for_directory_entries(options.sync_path(), depth);
-
-	std::cout << "Sending checksums...\n";
-	std::string send_text = format(entries, options.sync_path());
-	if (send_text.empty()) {
-		std::cout << "No files to backup!\n";
-		return 0;
-	}
-	send_message(fd, send_text);
+//	std::cout << send_text << '\n';
+/*	send_message(fd, send_text);
 	
 	std::string received = receive_message(fd);
 	std::set<fs::path> outdated = parse_message(received);
@@ -200,10 +201,11 @@ int main(int argc, char* argv[]) try {
 		std::cout << outdated.size() << " file(s) to backup.\n";
 		send_files(fd, outdated, options.sync_path());
 	}
-
+	
 	shutdown(fd, SHUT_WR);
 	close(fd);
 	std::cout << "Backup complete!\n";
+*/
 } catch (const std::exception& e) {
 	std::cerr << "error: " << e.what() << '\n';
 } catch (...) {

@@ -2,20 +2,18 @@
 
 namespace fs = std::filesystem;
 
-template <>
-int Client_options::lookup<int>(const std::string& key) const {
-	return std::stoi(lookup(key));
-}
-
 std::string Client_options::server_ip() const {
-	return lookup("ServerIP");
+	return lookup_single("ServerIP");
 }
 
 int Client_options::port() const {
-	return lookup<int>("Port");
+	return lookup_single_as<int>("Port");
 }
 
-fs::path Client_options::sync_path() const {
-	return lookup<fs::path>("SyncPath");
+std::vector<fs::path> Client_options::sync_path() const {
+	return lookup_as<fs::path>("SyncPath");
 }
 
+fs::path Client_options::directory() const {
+	return lookup_single_as<fs::path>("DirectoryFile");
+}

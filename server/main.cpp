@@ -104,15 +104,17 @@ void create_files
 	FileHeader header;
 	while (read_file_header(fd, header)) {
 		const fs::path path = backup_path / header.path;
-		/*
+		
+		// VRBOSE
 		if (fs::exists(path))
 			std::clog << "Overwritten " << path.string() << '\n';
 		else {
 			fs::create_directories(path.parent_path());
 			std::clog << "Created " << path.string() << '\n';
 		}
-		*/
+		
 		std::ofstream os{path, std::ios_base::binary};
+		std::cout << "trying to open " << path << std::endl;
 		if (!os)
 			throw std::runtime_error{
 				"can't open "

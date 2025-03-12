@@ -1,9 +1,5 @@
 #include "Directory.h"
-
-#include <algorithm>
 #include <filesystem>
-#include <stdexcept>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -11,6 +7,7 @@ std::vector<std::string> directories(const std::vector<fs::path>& paths) {
 	// Holds directory names
 	std::vector<std::string> dir_vec;
 	for (const fs::path& path : paths) {
+		// Recursive search
 		for (const fs::directory_entry& e : fs::recursive_directory_iterator{
 				path, fs::directory_options::skip_permission_denied
 			}) try {
@@ -20,6 +17,11 @@ std::vector<std::string> directories(const std::vector<fs::path>& paths) {
 			}
 		} catch (...) {
 			// Skip unaccessible entries
+		}
+		for (fs::path p{path}; p != p.root_path(); p = p.parent_path()) {
+			if (fs::is_directory(p)) {
+				dir_vec.push_back(p.filename());
+			}
 		}
 	}
 	if (dir_vec.size()) {
@@ -36,7 +38,7 @@ std::vector<size_t> tokenize_path(const std::vector<std::string>& dir_vec, const
 	for (fs::path path{p.parent_path()}; path != path.root_path(); path = path.parent_path()) {
 		const std::string dir = path.filename();
 		auto it = std::lower_bound(dir_vec.cbegin(), dir_vec.cend(), dir);
-		if (it != dir_vec.cend()) {
+		if (it != dir_vec.cend() && *it == dir) {
 			size_t token = std::distance(dir_vec.cbegin(), it);
 			tokens.push_back(token);
 		} else {
@@ -56,16 +58,6 @@ void write_directories_file(const fs::path& file, const std::vector<fs::path>& p
 	const auto dir_vec = directories(paths);
 	for (const auto& dir : dir_vec)
 		os << dir << '\n';
-}
-
-std::vector<std::string> read_file_rows(const fs::path& file) {
-	std::vector<std::string> tokens;
-	std::ifstream is{file};
-	if (!is)
-		throw std::runtime_error{"can't open " + file.string() + " for reading"};
-	for (std::string line; std::getline(is, line); )
-		tokens.push_back(line);
-	return tokens;
 }
 
 std::vector<std::string> collect_used_directories
