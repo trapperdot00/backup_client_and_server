@@ -44,7 +44,7 @@ public:
 			os << std::hex << i << '\t' << used_directories.at(i) << '\n';
 		return os.str();
 	}
-	std::string entry(size_t n) const {
+	std::string compressed_entry(size_t n) const {
 		std::ostringstream os;
 		const std::filesystem::path& file = files.at(n);
 		for (size_t token : tokenize_path(used_directories, file))
@@ -52,11 +52,14 @@ public:
 		os << file.filename();
 		return os.str();
 	}
-	std::string entries() const {
+	std::string compressed_entries() const {
 		std::ostringstream os;
 		for (size_t i = 0; i < files.size(); ++i)
-			os << entry(i) << '\n';
+			os << compressed_entry(i) << '\n';
 		return os.str();
+	}
+	std::filesystem::path entry(size_t n) const {
+		return files.at(n);
 	}
 	size_t size() const { return files.size(); }
 private:

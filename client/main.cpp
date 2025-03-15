@@ -1,4 +1,3 @@
-#include <limits>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -12,10 +11,14 @@
 #include <string>
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <map>
 #include <sstream>
+#include <format>
+#include <chrono>
 #include <boost/crc.hpp>
 
 #include "Client_options.h"
@@ -98,9 +101,9 @@ std::string format(const std::unordered_map<fs::path, uint32_t>& entries, const 
 	return os.str();
 }
 
-std::set<fs::path> parse_message(const std::string& msg) {
+std::unordered_set<fs::path> parse_message(const std::string& msg) {
 	std::istringstream is{msg};
-	std::set<fs::path> paths;
+	std::unordered_set<fs::path> paths;
 	for (std::string s; std::getline(is, s); ) {
 		paths.insert(fs::path{s});
 	}
@@ -123,7 +126,7 @@ std::string receive_message(int fd) {
 }
 
 void send_files
-(int fd, const std::set<fs::path>& paths, const fs::path& sync_path) {
+(int fd, const std::unordered_set<fs::path>& paths, const fs::path& sync_path) {
 	for (const fs::path& path : paths) {
 		fs::path localpath = sync_path / path;
 		std::ifstream is{localpath, std::ios_base::binary};
@@ -149,19 +152,66 @@ void send_files
 }
 
 int main(/*int argc, char* argv[]*/) try {
-	// Configuration file path
 	const fs::path config_path = "./config.txt";
+	const fs::path filedata_path = "./filedata.txt";
 	const Client_options options{parse_options(config_path)};
 	Path_handler phandler(options.sync_path(), options.directory());
 	for (const fs::path& p : options.sync_path())
 		add_recursively(phandler, p);
-	std::cout << "0000\n" 
-		<< phandler.translation_table()
-		<< "0000\n";
-	for (size_t i = 0; i < phandler.size(); ++i)
-		std::cout << phandler.entry(i) << '\t' << "cksum\n";
-	std::cout << "0000\n";
-/*
+	std::unordered_map<fs::path, std::pair<std::string, std::string>> curr_data;
+	for (size_t i = 0; i < phandler.size(); ++i) {
+		const fs::path& curr_path = phandler.entry(i);
+		std::string time = std::format("{0:%F}/{0:%T}", fs::last_write_time(curr_path));
+		curr_data[curr_path] = std::make_pair(time, std::string{});
+	}
+	std::unordered_map<fs::path, std::pair<std::string, std::string>> prev_data;
+	std::unordered_set<fs::path> outdated;
+	if (!fs::exists(filedata_path)) {
+		std::ofstream os{filedata_path};
+		for (const auto& p : curr_data) {
+			outdated.insert(p.first);
+			os << p.first << '\t' << p.second.first << '\n';
+		}
+	} else {
+		std::ifstream is{filedata_path};
+		for (std::string line; std::getline(is, line); ) {
+			std::istringstream iss{line};
+			fs::path p;
+			std::string t;
+			std::string c;
+			if (iss >> p >> t >> c) {
+				prev_data[p] = std::make_pair(t, c);
+			}
+		}
+		for (const auto& p : curr_data) {
+			auto it = prev_data.find(p.first);
+			if (it == prev_data.cend() || it->second.first != p.second.first) {
+				outdated.insert(p.first);
+			}
+		}
+	}
+	if (outdated.empty())
+		return 0;
+	std::unordered_map<fs::path, std::pair<std::string, std::string>> up_to_date;
+	{
+		std::ofstream os{filedata_path};
+		for (const fs::path& p : outdated) {
+			std::cout << "OUTDATED:\t" << p << '\n';
+		}
+		// Write current data into filedata file
+		for (const auto& p : curr_data) {
+			auto it = outdated.find(p.first);
+			if (it == outdated.cend()) {
+				auto it2 = prev_data.find(p.first);
+				up_to_date[p.first] = std::make_pair(it2->second.first, it2->second.second);
+				os << p.first << '\t' << it2->second.first << '\t' << it2->second.second << '\n';
+			} else {
+				up_to_date[p.first] = std::make_pair(p.second.first, std::to_string(get_crc32_from_file(p.first)));
+				os << p.first << '\t' << p.second.first << '\t' << get_crc32_from_file(p.first) << '\n';
+			}
+		}
+	}
+	/*
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		throw std::runtime_error{"socket error"};
@@ -177,20 +227,9 @@ int main(/*int argc, char* argv[]*/) try {
 			"failed connect() " + std::to_string(err)
 		};
 	}
-*/
-//	std::cout << "Calculating checksums..." << std::endl;
-//	std::unordered_map<fs::path, uint32_t> entries =
-//		checksums_for_directory_entries(options.sync_path());
-
-//	std::cout << "Sending checksums..." << std::endl;
-	// TODO: multiple syncpath support
-//	std::string send_text = format(entries, options.sync_path()[0]);
-//	if (send_text.empty()) {
-//		std::cout << "No files to backup!\n";
-//		return 0;
-//	}
-
-//	std::cout << send_text << '\n';
+	*/
+	for (const auto& p : up_to_date)
+		std::cout << "SEND:\t" << p.first << '\t' << p.second.second << '\n';
 /*	send_message(fd, send_text);
 	
 	std::string received = receive_message(fd);
